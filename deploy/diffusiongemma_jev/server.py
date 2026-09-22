@@ -236,7 +236,7 @@ def _evaluate_canvas_transformers_sync(req: SystemOneRequest) -> dict[str, Any]:
             exps = [math.exp(x - max_lp) for x in option_lps]
             total = sum(exps) or 1.0
             probs = [e / total for e in exps]
-            prob_map = {str(o): float(p) for o, p in zip(options, probs)}
+            prob_map = {str(o): float(p) for o, p in zip(options, probs, strict=True)}
             best = max(prob_map, key=lambda k: prob_map[k])
             choices[key] = {
                 "choice": best,
@@ -257,7 +257,7 @@ def _evaluate_canvas_transformers_sync(req: SystemOneRequest) -> dict[str, Any]:
             probs = [e / total for e in exps]
             expected = sum(float(i) * p for i, p in enumerate(probs))
             legend = {str(i): lbl for i, lbl in enumerate(criteria_list)}
-            prob_map = {lbl: float(p) for lbl, p in zip(criteria_list, probs)}
+            prob_map = {lbl: float(p) for lbl, p in zip(criteria_list, probs, strict=True)}
             scores[key] = {
                 "score": expected,
                 "legend": legend,

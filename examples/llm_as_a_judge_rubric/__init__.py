@@ -1,6 +1,6 @@
 """LLM-as-a-Judge over a Weighted Rubric example package."""
 
-from examples.llm_as_a_judge_rubric.agent import (
+from .agent import (
     SUPPORT_QUALITY_RUBRIC,
     build_llm_as_a_judge_rubric_workflow,
     root_agent,

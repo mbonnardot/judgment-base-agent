@@ -8,7 +8,7 @@
 # Leave this running in its own terminal, then in a second terminal:
 #
 #   cp examples/.env.example examples/.env   # uncomment the DIFFUSIONGEMMA_* block
-#   PYTHONPATH=. adk web examples --port 8008
+#   uv run adk web examples --port 8008
 #
 # The VM has no external IP by design, so IAP is the only way in. You need
 # roles/iap.tunnelResourceAccessor and roles/compute.viewer on the project.

@@ -11,6 +11,7 @@ from google.adk.agents.invocation_context import InvocationContext
 from google.adk.evaluation.eval_case import Invocation
 from google.adk.events import Event, EventActions
 from google.genai import types as genai_types
+from pydantic import ConfigDict
 
 from judgment_base_agent.backends.base import BaseJudgmentBackend
 from judgment_base_agent.backends.typesafe import TypeSafeBackend
@@ -72,7 +73,7 @@ SUPPORT_QUALITY_RUBRIC = JudgmentRubric(
 class LiveRubricJudgeAgent(BaseAgent):
     """ADK Agent node that runs JudgmentRubricEvaluator on the current turn."""
 
-    model_config = {"arbitrary_types_allowed": True}
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     rubric: JudgmentRubric = SUPPORT_QUALITY_RUBRIC
     backend: BaseJudgmentBackend | None = None

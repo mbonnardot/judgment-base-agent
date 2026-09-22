@@ -4,16 +4,14 @@ from __future__ import annotations
 
 import math
 from typing import Any
+
 import pytest
 
 from judgment_base_agent import (
     Choice,
     DiffusionGemmaBackend,
     JudgmentAgent,
-    JudgmentGuard,
-    JudgmentMap,
     JudgmentSchema,
-    JudgmentSwitch,
     Noul,
     Score,
     TypeSafeBackend,
@@ -24,7 +22,6 @@ from judgment_base_agent.backends.diffusiongemma import (
     compute_noul_from_logprobs,
     compute_score_from_logprobs,
 )
-from judgment_base_agent.errors import JudgmentConfigError, JudgmentEvaluationError
 
 
 class RoutingSchema(JudgmentSchema):
@@ -230,12 +227,30 @@ async def test_typesafe_backend_auto_delegates_when_diffusiongemma_env_is_set(
 
 
 
+@pytest.mark.heavy
 @pytest.mark.asyncio
 async def test_cloud_run_container_real_diffusiongemma_transformers_e2e(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Run a real 1-step DiffusionGemmaForBlockDiffusion canvas forward pass through server.py and JudgmentAgent."""
+    """Run a real 1-step DiffusionGemmaForBlockDiffusion canvas forward pass through server.py and JudgmentAgent.
+
+    Skipped unless torch and a transformers build exposing
+    DiffusionGemmaForBlockDiffusion are installed. Neither is a declared
+    dependency of this package, and the test additionally downloads a tiny
+    model from Hugging Face, so it cannot run on a bare offline checkout.
+    Run it explicitly with `pytest -m heavy`.
+    """
     import httpx
+
+    pytest.importorskip("torch", reason="heavy test: requires torch")
+    transformers = pytest.importorskip(
+        "transformers",
+        minversion="5.8.0",
+        reason="heavy test: requires transformers>=5.8 for DiffusionGemmaForBlockDiffusion",
+    )
+    if not hasattr(transformers, "DiffusionGemmaForBlockDiffusion"):
+        pytest.skip("installed transformers lacks DiffusionGemmaForBlockDiffusion")
+
     from deploy.diffusiongemma_jev import server as container_server
 
     monkeypatch.setenv("DIFFUSIONGEMMA_ENGINE", "transformers")

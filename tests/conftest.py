@@ -10,8 +10,8 @@ what the unit tests assert.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Iterator
+import os
 
 import pytest
 

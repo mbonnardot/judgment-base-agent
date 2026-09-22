@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Neither job writes to the repo; do not inherit a broader default token.
+permissions:
+  contents: read
+
+# A new push to the same branch supersedes the previous run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Report every version's result; one failure should not mask the others.
+      fail-fast: false
+      matrix:
+        # 3.11 is the floor declared by requires-python. All three were run
+        # locally against this lockfile before this workflow was added.
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+
+      # Exact tag, not @v10: astral-sh/setup-uv publishes floating major tags
+      # only through v7, so @v8/@v9/@v10 do not resolve. Bump deliberately.
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
+
+      # --frozen installs exactly what uv.lock pins and fails if the lockfile
+      # is stale, so CI cannot silently resolve a different dependency set
+      # than a developer gets locally.
+      - name: Install from the lockfile
+        run: uv sync --frozen --python ${{ matrix.python-version }}
+
+      # No secrets required: the suite runs against MockJudgmentBackend and
+      # passes with TYPESAFE_API_KEY unset and examples/.env absent (that file
+      # is gitignored, so it never exists here). Verified before adding this.
+      #
+      # Tests marked `heavy` need torch/transformers and download a model from
+      # Hugging Face; they skip themselves via importorskip. Run them
+      # deliberately with `pytest -m heavy`, not on every push.
+      - name: Run tests
+        run: uv run --no-sync pytest -q
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Exact tag, not @v10: astral-sh/setup-uv publishes floating major tags
+      # only through v7, so @v8/@v9/@v10 do not resolve. Bump deliberately.
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
+
+      - name: Install from the lockfile
+        run: uv sync --frozen
+
+      # Catches a dependency edited in pyproject.toml without relocking.
+      - name: Lockfile is in sync with pyproject.toml
+        run: uv lock --check
+
+      # Rules and their rationale live in [tool.ruff] in pyproject.toml.
+      # --output-format=github annotates the diff inline on pull requests.
+      #
+      # Deliberately no `ruff format --check` gate: the repo predates ruff's
+      # formatter and 23 of 39 files would be rewritten. Adopting it is a
+      # separate decision, not something to smuggle in behind a CI failure.
+      - name: Ruff
+        run: uv run --no-sync ruff check --output-format=github .

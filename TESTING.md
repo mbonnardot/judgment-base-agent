@@ -17,6 +17,10 @@ backends is a comment in a `.env` file, not a code change.
 git clone https://github.com/mbonnardot/judgment-base-agent.git
 cd judgment-base-agent
 
+# Recommended: uv, reproducible from the committed uv.lock
+uv sync
+
+# Or with pip (note the [eval] extra is mandatory -- see pyproject.toml)
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
@@ -30,8 +34,12 @@ Then edit `examples/.env` and fill in `GOOGLE_CLOUD_PROJECT`.
 Verify the library itself before touching any network:
 
 ```bash
-pytest -q          # 49 passed, 92% coverage, no credentials needed
+uv run pytest -q     # 48 passed, 1 skipped, no credentials needed
 ```
+
+The skipped one is the `heavy` marker: a real DiffusionGemma forward pass that
+needs `torch` + `transformers>=5.8` and downloads a tiny model from Hugging
+Face. Run it with `uv run pytest -m heavy` once those are installed.
 
 ---
 
@@ -44,7 +52,7 @@ TYPESAFE_API_KEY=sk-...
 ```
 
 ```bash
-PYTHONPATH=. adk web examples --port 8008
+uv run adk web examples --port 8008
 ```
 
 Open <http://127.0.0.1:8008> and pick any of the five apps.
@@ -107,7 +115,7 @@ DIFFUSIONGEMMA_MODEL_ID=RedHatAI/diffusiongemma-26B-A4B-it-NVFP4
 In a second terminal:
 
 ```bash
-PYTHONPATH=. adk web examples --port 8008
+uv run adk web examples --port 8008
 ```
 
 > [!IMPORTANT]

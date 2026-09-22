@@ -17,17 +17,15 @@ try:
 except Exception:
     pass
 
-import pytest
 from google.adk.apps import App
 from google.adk.events import Event
-from google.adk.events.request_input import RequestInput
 from google.adk.runners import InMemoryRunner
 from google.genai import types
+import pytest
 
 from judgment_base_agent.agent import (
     JudgmentAgent,
     JudgmentDecision,
-    _extract_node_input,
     judgment_node,
     normalize_decision,
 )

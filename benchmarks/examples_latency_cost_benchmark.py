@@ -40,7 +40,6 @@ from judgment_base_agent.backends.typesafe import TypeSafeBackend
 from judgment_base_agent.evals import JudgmentRubricEvaluator
 from judgment_base_agent.primitives import Choice, Noul
 
-
 SUPPORT_ROUTES = {
     "billing_refund": "Duplicate charges, subscription refunds, invoice disputes, or payment method errors",
     "technical_bug": "Application crashes, API 500 errors, broken integrations, or SDK bugs",

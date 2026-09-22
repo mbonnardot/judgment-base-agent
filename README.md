@@ -35,13 +35,28 @@ Install directly into any Python 3.11+ / Google ADK environment:
 pip install git+https://github.com/mbonnardot/judgment-base-agent.git
 ```
 
+Or with uv:
+
+```bash
+uv add git+https://github.com/mbonnardot/judgment-base-agent.git
+```
+
 Or clone to run the **5 interactive `adk web` examples** and **live latency benchmarks** locally:
 
 ```bash
 git clone https://github.com/mbonnardot/judgment-base-agent.git
 cd judgment-base-agent
+
+# Recommended: uv, using the committed uv.lock for a reproducible environment
+uv sync
+
+# Or with pip
 pip install -e .
 ```
+
+> [!NOTE]
+> The `google-adk[eval]` extra is required, not optional: `judgment_base_agent/__init__.py`
+> imports `evals.py`, which imports `google.adk.evaluation` (and therefore pandas).
 
 ---
 
@@ -85,7 +100,7 @@ MODEL_NAME=gemini-2.5-flash
 
 ```bash
 set -a && source examples/.env && set +a
-PYTHONPATH=. adk web examples --port 8008
+uv run adk web examples --port 8008
 ```
 Open **`http://127.0.0.1:8008`** and select any of the 5 agents from the top-left dropdown:
 
@@ -243,7 +258,7 @@ No HuggingFace token is required — `google/diffusiongemma-26B-A4B-it` is publi
 
 ```bash
 export DIFFUSIONGEMMA_JEV_URL="https://diffusiongemma-jev-xyz-uc.a.run.app"
-PYTHONPATH=. adk web examples --port 8008
+uv run adk web examples --port 8008
 ```
 
 If the Cloud Run service is private (the default, and mandatory under a Domain Restricted Sharing org policy that blocks `allUsers`), pass an identity token via `DIFFUSIONGEMMA_API_KEY`; the backend sends it as `Authorization: Bearer`:
@@ -296,11 +311,18 @@ Scoring 15 criteria costs **+8 ms** over scoring 1 — all criteria occupy disti
 ## Running Tests & Benchmarks
 
 ```bash
-# Run full unit + integration test suite (41 tests, 92% coverage)
+# Run full unit + integration test suite (49 tests; 48 run offline, 1 `heavy` test
+# is skipped unless torch + transformers>=5.8 are installed)
 pytest --cov=judgment_base_agent --cov-report=term-missing -v
+uv run pytest --cov=judgment_base_agent --cov-report=term-missing -v   # with uv
+
+# Opt in to the heavy test (downloads a tiny DiffusionGemma model from Hugging Face)
+pytest -m heavy
 
 # Run live 5-example latency & cost benchmark (TypeSafeBackend vs gemini-3.5-flash-lite & gemini-3.7-flash)
-set -a && source examples/.env && set +a && PYTHONPATH=. python benchmarks/examples_latency_cost_benchmark.py
+# PYTHONPATH=. is still required here: the benchmark imports `examples.*` absolutely.
+# (`adk web` no longer needs it -- the example packages use relative imports.)
+set -a && source examples/.env && set +a && PYTHONPATH=. uv run python benchmarks/examples_latency_cost_benchmark.py
 ```
 
 

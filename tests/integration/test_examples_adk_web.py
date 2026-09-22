@@ -151,7 +151,11 @@ def test_example_4_review_triage_batch_filter_and_rank() -> None:
         (0.98, 0.97, 2.00),  # REV-105: Pro sync delay
     ]
     entries = []
-    for idx, (item, (safe_p, act_p, urg_s)) in enumerate(zip(INCOMING_APP_REVIEWS, sim_data)):
+    # strict=True: sim_data is hand-maintained to pair 1:1 with INCOMING_APP_REVIEWS.
+    # Without it, adding a review would silently drop off the end and go untested.
+    for idx, (item, (safe_p, act_p, urg_s)) in enumerate(
+        zip(INCOMING_APP_REVIEWS, sim_data, strict=True)
+    ):
         j = ReviewEvaluationSchema(
             is_safe_not_spam=NoulJudgment(noul=safe_p),
             has_actionable_issue=NoulJudgment(noul=act_p),
@@ -177,8 +181,10 @@ async def test_example_5_llm_as_a_judge_rubric_evalset() -> None:
     """Verify `SUPPORT_QUALITY_RUBRIC` and `support_rubric.evalset.json` pass compliant turns and veto-fail unsafe turns."""
     import json
     from pathlib import Path
+
     from google.adk.evaluation.eval_metrics import EvalStatus
     from google.adk.evaluation.eval_set import EvalSet
+
     from examples.llm_as_a_judge_rubric.agent import SUPPORT_QUALITY_RUBRIC
     from judgment_base_agent.evals import CLARITY_KEY, JudgmentRubricEvaluator
 

@@ -21,7 +21,6 @@ from typing import Any
 from google.adk.evaluation.eval_case import IntermediateData, Invocation
 from google.adk.evaluation.eval_config import EvalMetric
 from google.adk.evaluation.eval_metrics import JudgeModelOptions, RubricsBasedCriterion
-from google.adk.evaluation.eval_rubrics import Rubric, RubricContent
 from google.adk.evaluation.rubric_based_final_response_quality_v1 import (
     RubricBasedFinalResponseQualityV1Evaluator,
 )
@@ -30,7 +29,6 @@ from google.genai import types
 from judgment_base_agent.backends.typesafe import TypeSafeBackend
 from judgment_base_agent.evals import JudgmentRubric, JudgmentRubricEvaluator, RubricItem
 from judgment_base_agent.primitives import Noul
-
 
 SAMPLE_USER_PROMPT = (
     "Hi, I bought a pair of wireless headphones 12 days ago (Order #ORD-8821) "

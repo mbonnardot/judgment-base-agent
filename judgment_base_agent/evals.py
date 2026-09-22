@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any, Optional
+from typing import Any
 
 from google.adk.evaluation.eval_case import (
     ConversationScenario,
@@ -148,7 +148,7 @@ class JudgmentRubric(BaseModel):
         return cls(**kwargs)  # type: ignore[arg-type]
 
 
-def _extract_content_text(content: Optional[genai_types.Content]) -> str:
+def _extract_content_text(content: genai_types.Content | None) -> str:
     if content is None or not content.parts:
         return ""
     texts: list[str] = []
@@ -159,7 +159,7 @@ def _extract_content_text(content: Optional[genai_types.Content]) -> str:
 
 
 def _format_intermediate_data(
-    intermediate: Optional[IntermediateData | InvocationEvents],
+    intermediate: IntermediateData | InvocationEvents | None,
 ) -> str:
     if intermediate is None:
         return ""
@@ -184,10 +184,10 @@ class JudgmentRubricEvaluator(Evaluator):
 
     def __init__(
         self,
-        eval_metric: Optional[EvalMetric] = None,
+        eval_metric: EvalMetric | None = None,
         *,
-        rubric: Optional[JudgmentRubric] = None,
-        backend: Optional[BaseJudgmentBackend] = None,
+        rubric: JudgmentRubric | None = None,
+        backend: BaseJudgmentBackend | None = None,
         include_tool_trajectory: bool = True,
         include_expected_response: bool = True,
     ) -> None:
@@ -234,7 +234,7 @@ class JudgmentRubricEvaluator(Evaluator):
     def _build_evaluation_dossier(
         self,
         actual: Invocation,
-        expected: Optional[Invocation],
+        expected: Invocation | None,
     ) -> str:
         sections: list[str] = [
             f"[USER REQUEST]\n{_extract_content_text(actual.user_content)}"
@@ -257,8 +257,8 @@ class JudgmentRubricEvaluator(Evaluator):
     async def evaluate_invocations(
         self,
         actual_invocations: list[Invocation],
-        expected_invocations: Optional[list[Invocation]] = None,
-        conversation_scenario: Optional[ConversationScenario] = None,
+        expected_invocations: list[Invocation] | None = None,
+        conversation_scenario: ConversationScenario | None = None,
     ) -> EvaluationResult:
         """Evaluates each ADK invocation against the calibrated JudgmentRubric."""
         del conversation_scenario
@@ -396,10 +396,10 @@ class JudgmentRubricEvaluator(Evaluator):
 async def evaluate_rubric_metric(
     eval_metric: EvalMetric,
     actual_invocations: list[Invocation],
-    expected_invocations: Optional[list[Invocation]] = None,
-    conversation_scenario: Optional[ConversationScenario] = None,
+    expected_invocations: list[Invocation] | None = None,
+    conversation_scenario: ConversationScenario | None = None,
     *,
-    backend: Optional[BaseJudgmentBackend] = None,
+    backend: BaseJudgmentBackend | None = None,
 ) -> EvaluationResult:
     """ADK custom_function_path entry point (`judgment_base_agent.evals.evaluate_rubric_metric`)."""
     evaluator = JudgmentRubricEvaluator(eval_metric=eval_metric, backend=backend)
@@ -411,7 +411,7 @@ async def evaluate_rubric_metric(
 
 
 def register_judgment_eval_metrics(
-    registry: Optional[MetricEvaluatorRegistry] = None,
+    registry: MetricEvaluatorRegistry | None = None,
     metric_name: str = DEFAULT_METRIC_NAME,
 ) -> MetricEvaluatorRegistry:
     """Registers JudgmentRubricEvaluator in ADK's MetricEvaluatorRegistry."""

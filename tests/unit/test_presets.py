@@ -1,21 +1,16 @@
 """Unit tests for JudgmentSwitch, JudgmentGuard, JudgmentMap, and JudgmentBatch."""
 
-import pytest
 from google.adk.apps import App
 from google.adk.runners import InMemoryRunner
 from google.genai import types
+import pytest
 
 from judgment_base_agent import (
-    Choice,
-    ChoiceJudgment,
-    SystemOneAgent,
-    SystemOneGate,
-    SystemOneRouter,
+    JudgmentAgent,
     JudgmentBatch,
     JudgmentConfigError,
-    JudgmentDecision,
     JudgmentField,
-    JudgmentAgent,
+    JudgmentGate,
     JudgmentGuard,
     JudgmentMap,
     JudgmentRouter,
@@ -27,19 +22,27 @@ from judgment_base_agent import (
     Score,
     ScoreJudgment,
     SystemOneAgent,
+    SystemOneGate,
+    SystemOneRouter,
 )
 
 
 def test_aliases_are_identical() -> None:
     import judgment_base_agent
-    import judgment_base_agent
 
-    assert SystemOneAgent is SystemOneAgent
+    assert SystemOneAgent is JudgmentAgent
     assert JudgmentRouter is JudgmentSwitch
     assert SystemOneRouter is JudgmentSwitch
+    assert JudgmentGate is JudgmentGuard
     assert SystemOneGate is JudgmentGuard
-    assert judgment_base_agent.JudgmentAgent is judgment_base_agent.JudgmentAgent
-    assert judgment_base_agent.__all__ == judgment_base_agent.__all__
+
+    # The aliases must resolve as module attributes too, not only through the
+    # `from judgment_base_agent import ...` block above.
+    assert judgment_base_agent.SystemOneAgent is judgment_base_agent.JudgmentAgent
+
+    # Guard against __all__ going stale: every exported name must exist.
+    unresolved = [name for name in judgment_base_agent.__all__ if not hasattr(judgment_base_agent, name)]
+    assert unresolved == []
 
 
 def test_presets_validation_errors() -> None:

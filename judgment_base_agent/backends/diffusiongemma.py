@@ -149,7 +149,7 @@ def compute_choice_from_logprobs(
     exps = [math.exp(lp - max_lp) for lp in raw_lps]
     total = sum(exps) or 1.0
     probs_list = [e / total for e in exps]
-    probs_map = {str(opt): float(p) for opt, p in zip(options, probs_list)}
+    probs_map = {str(opt): float(p) for opt, p in zip(options, probs_list, strict=True)}
     best_opt = max(probs_map, key=lambda k: probs_map[k])
     confidence = _normalized_entropy_confidence(probs_list)
     return ChoiceJudgment.from_raw(
@@ -175,7 +175,7 @@ def compute_score_from_logprobs(
             _match_token_logprob(label, top_logprobs),
         )
         / temp
-        for idx, label in zip(indices, criteria)
+        for idx, label in zip(indices, criteria, strict=True)
     ]
     max_lp = max(raw_lps) if raw_lps else 0.0
     exps = [math.exp(lp - max_lp) for lp in raw_lps]
@@ -183,7 +183,7 @@ def compute_score_from_logprobs(
     probs_list = [e / total for e in exps]
     expected_score = sum(float(i) * p for i, p in enumerate(probs_list))
     legend = {str(i): str(label) for i, label in enumerate(criteria)}
-    probs_map = {str(label): float(p) for label, p in zip(criteria, probs_list)}
+    probs_map = {str(label): float(p) for label, p in zip(criteria, probs_list, strict=True)}
     confidence = _normalized_entropy_confidence(probs_list)
     return ScoreJudgment.from_raw(
         score=expected_score,

@@ -1,6 +1,7 @@
 """Unit tests for BaseJudgmentBackend, TypeSafeBackend, and MockJudgmentBackend."""
 
 from types import SimpleNamespace
+
 import pytest
 import typesafe_sdk
 
