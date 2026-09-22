@@ -1,167 +1,88 @@
-# Deploying `DiffusionGemma-as-Jev` on GCP Cloud Run
+# Deploying OpenJev (`DiffusionGemma-26B-A4B`) for `judgment-base-agent`
 
-This directory packages Google's **`DiffusionGemma-26B-A4B`** (`google/diffusiongemma-26B-A4B-it`, Apache-2.0, ungated) as a self-hosted **System One / Jev** server on Google Cloud Run.
+This directory packages [`razorback16/openjev`](https://github.com/razorback16/openjev) (`v0.3.0`) as the open-source **System One / Jev** decision server (`POST /v1/systemone`) for `judgment-base-agent`.
 
-## How It Works ("Bubble-Sheet" Single-Step Denoising)
+## Why OpenJev?
 
-1. **`DiffusionGemma-26B-A4B`** is a sparse Mixture-of-Experts discrete diffusion model — 25.2B total parameters but only **3.8B active** per step, with a 256-token canvas.
-2. Instead of generating free-form text over the recommended 48 denoising steps, [`server.py`](./server.py) lays your `JudgmentSchema` (`Choice`, `Score`, `Noul`) out as a **single-step bubble sheet** (`DIFFUSIONGEMMA_DENOISING_STEPS=1`). Every question gets its own answer slot in one canvas, so a single forward pass scores all of them at once.
-3. From that pass it reads the exact softmax distribution (`probabilities`), expected value (`Score`), boolean probability (`Noul`), and normalized Shannon entropy (`confidence` / `_epistemic_clarity`).
-
-Because all criteria share one canvas, latency is near-`O(1)` in the number of criteria — measured on a live deployment, 15 criteria cost only **+8 ms** over 1.
-
-## Engines
-
-| Engine | `DIFFUSIONGEMMA_ENGINE` | Notes |
-| :-- | :-- | :-- |
-| **`transformers`** (default) | `transformers` | [`server.py`](./server.py) runs a native `DiffusionGemmaForBlockDiffusion` encoder-prefill + bidirectional-decoder canvas pass. Requires `transformers >= 5.8.0`. Runs on CPU or GPU. No vLLM dependency. |
-| **vLLM** (opt-in, GPU-only) | `vllm` | `entrypoint.sh` runs `vllm serve` on an internal port **and serves the PR's own `structured_server.py` on `$PORT`**. `server.py` is not started at all. Requires [vLLM PR #57250](https://github.com/vllm-project/vllm/pull/57250) — **not merged**. Must be built in explicitly; see below. |
-
-### Why vLLM mode does not use `server.py`
-
-PR #57250 ships `examples/features/diffusion_reads/structured_server.py`, which already
-speaks this exact Jev System One wire format **and** drives the canvas properly through
-the PR's `diffusion_seed_canvas` / `diffusion_read_only` sampling params — all questions
-answered from one read.
-
-Our earlier vLLM path in `server.py` posted plain `/v1/completions` once *per question*
-and ignored those params, which is `O(N)` in criteria — the precise opposite of the
-property that makes this model worth deploying. It has been deleted rather than ported.
-
-One wire-level difference: the PR's server listens on `POST /v1/systemone` (no
-underscore). Point agents at it with `DIFFUSIONGEMMA_SYSTEM_ONE_PATH=/v1/systemone`.
-
-### Upstream bug: question keys can break the shared canvas template
-
-`structured_server.py` lays each question out as a row in one shared canvas template and
-prints the **question key immediately next to its answer slot**. Keys whose trailing
-characters change how the adjacent label tokenizes make the server reject its own default
-`no` label, but only once enough rows share a canvas:
-
-```
-422  question 'item_0_a': label 'no' is not a single token
-422  question 'item_0__is_safe_not_spam': labels do not share one template slot
-```
-
-The same 15 questions with identical bodies return `200` when the keys are renamed to
-`n0…n9`/`s0…s4`, so nothing about the payload is invalid Jev. `JudgmentMap` generates
-exactly the offending shape (`item_{i}__{field}`), which made `review_triage_batch` fail
-against this engine while working fine on managed Jev.
-
-`DiffusionGemmaBackend` therefore sends **positional keys** (`q0`, `q1`, …) on the wire and
-maps the answers back to the real schema keys. Agents and schemas are untouched, and the
-single-canvas O(1) property is preserved. The un-aliasing is tolerant — it accepts either
-the alias or the original key — so mocks and the managed API, which echo the original
-names, keep working, and the workaround self-heals if the PR fixes its template builder.
-
-Opt out with `DIFFUSIONGEMMA_ALIAS_QUESTION_KEYS=false` (or
-`DiffusionGemmaBackend(alias_question_keys=False)`) if you want the key text to reach the
-prompt as a semantic hint. Measured quality impact on `review_triage_batch` was within
-noise: urgency `3.00 / 2.01 / 1.26` self-hosted vs `3.00 / 2.00 / 1.19` on managed Jev.
-
-### Building the vLLM engine
-
-> [!WARNING]
-> DiffusionGemma structured generation is **not in any released vLLM**. As of 2026-09-20, PR #57250 is **open**, has **merge conflicts**, and has **no formal review approvals**. The author's own note: *"I need to take a pass at cleaning up LLM comments before this is ready to land."* Treat this engine as experimental.
-
-The image does not ship vLLM by default. Opt in at build time — it is pinned to an exact fork commit, not a moving branch:
-
-```bash
-docker build \
-  --build-arg INSTALL_VLLM=true \
-  --build-arg VLLM_GIT_URL=https://github.com/mmastrac/vllm.git \
-  --build-arg VLLM_GIT_REF=ceb8eebf3eedddb964a50180f33838a9a6b13ee2 \
-  -t diffusiongemma-jev:vllm deploy/diffusiongemma_jev/
-```
-
-If you set `DIFFUSIONGEMMA_ENGINE=vllm` on an image built without that flag, `entrypoint.sh` exits with an explicit error rather than a bare `ModuleNotFoundError`.
-
-The build clones the PR source tree to `/opt/vllm-pr` rather than `pip install git+...`, because a wheel-only install discards `examples/` — and that is where `structured_server.py` lives.
-
-**Memory sizing.** Measured on an NVIDIA L4 (23034 MiB): `RedHatAI/diffusiongemma-26B-A4B-it-NVFP4` via the Marlin FP4 fallback settles at **20596 MiB**, ready in ~300 s. The entrypoint defaults to that checkpoint with `--max-model-len 16384`, `--max-logprobs 32`, `--enable-prefix-caching`, `--attention-backend TRITON_ATTN`, and `--diffusion-config '{"canvas_length": 64}'`.
-
-**When #57250 merges**, point `VLLM_GIT_URL` at upstream and bump `VLLM_GIT_REF` to the merge commit — or drop the build arg entirely once it reaches a PyPI release.
-
-## Endpoints
-
-| Route | Purpose |
-| :-- | :-- |
-| `GET /health` | Liveness + reports active `engine` and resolved `model`. (`transformers` mode) |
-| `POST /v1/system_one` | Batched judgment scoring. (`transformers` mode) |
-| `POST /v1/judgment` | Alias of `/v1/system_one`. (`transformers` mode) |
-| `POST /v1/systemone` | Batched judgment scoring served by the PR's `structured_server.py`. (`vllm` mode) |
+1. **Prebuilt Image & Precompiled vLLM Wheels (`razorback16/openjev:0.3.0`):**
+   - Ships [`razorback16/vllm@baa8338`](https://github.com/razorback16/vllm/tree/structured-reads-57250-rebased) (`vllm#57250` structured canvas reads plus 4 upstream crash fixes: `vllm#57416` prefill logit rows, `vllm#54309` image inputs, sampler `torch.compile` fallback dtype fix, and mixed-batch logprob stash widths) using `VLLM_USE_PRECOMPILED=1` — no 60-minute CUDA source compilation.
+2. **Automatic Single-Token Label & Canvas Management:**
+   - Normalizes all schema question keys internally to `q1..qN`, assigns verified single-token labels (`A..Z`, `a..z`, `AA..ZZ`), switches to a compact `"indexed"` layout when `>10` questions are batched, and chunks large batches (~12 questions per read) in parallel.
+3. **Multiple Runtime Targets:**
+   - **Codiv Free Hosted OpenJev (`https://api.codiv.ai`):** 100M free input tokens, zero infrastructure required.
+   - **Apple Silicon Mac (`OPENJEV_BACKEND=mlx`):** Runs `mlx-community/diffusiongemma-26B-A4B-it-4bit` in-process (~16 GB unified memory, no Docker or vLLM required).
+   - **NVIDIA L4 / GPU Container (`razorback16/openjev:0.3.0`):** Serves both `POST /v1/systemone` and OpenAI-compatible `POST /v1/chat/completions` (`model="diffusiongemma-26b"`) on the same GPU.
 
 ---
 
-## 1. One-Command Deployment
+## 1. Using OpenJev with Existing ADK Agents (Zero Code Changes)
+
+Set `OPENJEV_BASE_URL` (or `DIFFUSIONGEMMA_JEV_URL`) in `examples/.env` or your shell:
 
 ```bash
-export PROJECT_ID="your-gcp-project-id"
-chmod +x deploy/diffusiongemma_jev/deploy_cloud_run.sh
-./deploy/diffusiongemma_jev/deploy_cloud_run.sh
+# Option 1: Free hosted OpenJev on Codiv
+export OPENJEV_BASE_URL="https://api.codiv.ai"
+export OPENJEV_API_KEY="sk-codiv-..."
+
+# Option 2: Local Docker / Apple Silicon MLX / IAP GPU Tunnel
+export OPENJEV_BASE_URL="http://127.0.0.1:8080"
 ```
 
-The script builds in Cloud Build, auto-creates the Artifact Registry repo, deploys to Cloud Run, and prints your service URL. No HuggingFace token is needed — the model is ungated.
+When `OPENJEV_BASE_URL` or `DIFFUSIONGEMMA_JEV_URL` is set, `TypeSafeBackend()` automatically delegates every `JudgmentAgent`, `JudgmentSwitch`, `JudgmentGuard`, `JudgmentMap`, and `JudgmentRubricEvaluator` call to [`DiffusionGemmaBackend`](../../judgment_base_agent/backends/diffusiongemma.py).
 
-### GPU vs CPU
-
-The script first tries `--gpu=1 --gpu-type=nvidia-l4`, then **falls back to 4 vCPU / 16 GiB CPU** if that fails.
-
-> **Cloud Run GPU services require `--min-instances >= 1`**, so a GPU deployment does *not* scale to zero and bills continuously. Only the CPU fallback scales to `$0` when idle.
-
-L4 quota is `0` on new projects; request it at [g.co/cloudrun/gpu-quota](https://g.co/cloudrun/gpu-quota). Among the public quantizations, `nvidia/...NVFP4` (17.53 GiB) fits an L4's 24 GB — `RedHatAI/...FP8-dynamic` (25.33 GiB) does not.
-
-Without a GPU the server falls back to a small test checkpoint. That exercises the complete request path but produces near-uniform probabilities, so it validates **plumbing, not judgment quality**.
-
----
-
-## 2. Switching Existing Agents & `adk web` to Your Container
-
-**Zero code changes** are required in any existing `JudgmentAgent`, `JudgmentSwitch`, `JudgmentGuard`, `JudgmentMap`, or the five apps in `examples/`.
-
-Set `DIFFUSIONGEMMA_JEV_URL` in your `examples/.env` (or shell):
-
-```bash
-export DIFFUSIONGEMMA_JEV_URL="https://diffusiongemma-jev-<hash>-uc.a.run.app"
-```
-
-When it is set, `TypeSafeBackend()` automatically delegates every `evaluate()` call to `DiffusionGemmaBackend`.
-
-### Authenticating to a private service
-
-Cloud Run services are private by default, and an org policy enforcing Domain Restricted Sharing will reject an `allUsers` binding outright. Supply an identity token via `DIFFUSIONGEMMA_API_KEY`, which the backend sends as `Authorization: Bearer`:
-
-```bash
-# A *user* account token has the gcloud OAuth client ID as its `aud` and will 401;
-# `--audiences` is rejected for user credentials. Impersonate a service account
-# granted roles/run.invoker instead:
-export DIFFUSIONGEMMA_API_KEY="$(gcloud auth print-identity-token \
-  --impersonate-service-account=YOUR_SA@PROJECT.iam.gserviceaccount.com \
-  --audiences="$DIFFUSIONGEMMA_JEV_URL" --include-email)"
-```
-
-### Explicit Python usage
+Or instantiate [`DiffusionGemmaBackend`](../../judgment_base_agent/backends/diffusiongemma.py) explicitly (including optional OpenJev extensions `steps`, `samples`, `think`, `sequential`, `images`):
 
 ```python
-from judgment_base_agent import DiffusionGemmaBackend, JudgmentAgent
+from judgment_base_agent import DiffusionGemmaBackend, JudgmentSwitch
 
-agent = JudgmentAgent(
-    name="triage_router",
-    schema=SupportTriageSchema,
+router = JudgmentSwitch(
+    name="openjev_router",
+    routes={"billing": "Billing questions", "tech_support": "Technical bugs"},
     backend=DiffusionGemmaBackend(
-        base_url="https://diffusiongemma-jev-<hash>-uc.a.run.app",
+        base_url="http://127.0.0.1:8080",
+        steps=1,
+        samples=2,
     ),
 )
 ```
 
 ---
 
-## 3. Configuration Reference
+## 2. Running OpenJev Locally or on GCP
 
-| Variable | Default | Purpose |
-| :-- | :-- | :-- |
-| `DIFFUSIONGEMMA_ENGINE` | `transformers` | `transformers` or `vllm`. |
-| `DIFFUSIONGEMMA_MODEL_ID` | auto | Overrides model selection. Defaults to the 26B model when CUDA with >= 15 GB VRAM is present, otherwise a small test checkpoint. |
-| `DIFFUSIONGEMMA_DENOISING_STEPS` | `1` | Canvas denoising steps. |
-| `DIFFUSIONGEMMA_TEMPERATURE` | — | Sampling temperature. |
-| `PRELOAD_MODEL_ON_STARTUP` | `true` | Load weights at boot instead of on first request. |
+### A. Docker (`razorback16/openjev:0.3.0` on NVIDIA GPU)
+
+```bash
+docker run -d --gpus all --ipc=host -p 127.0.0.1:8080:8080 \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
+  razorback16/openjev:0.3.0
+```
+
+### B. Apple Silicon Mac (`OPENJEV_BACKEND=mlx`, no Docker/vLLM)
+
+```bash
+pip install "git+https://github.com/razorback16/openjev.git#egg=openjev[mlx]"
+OPENJEV_BACKEND=mlx python -m openjev
+```
+
+### C. One-Command GCP Cloud Run Deployment (`1x NVIDIA L4`)
+
+```bash
+export PROJECT_ID="your-gcp-project-id"
+./deploy/diffusiongemma_jev/deploy_cloud_run.sh
+```
+
+### D. GCE L4 GPU VM Deployment (`deploy_vm.sh` + IAP Tunnel)
+
+Provision (or update) a GCE `g2-standard-8` (1x NVIDIA L4) VM and deploy OpenJev via Docker (default) or `systemd`:
+
+```bash
+# Deploy to existing VM (or pass --create to provision a new L4 VM)
+./deploy/diffusiongemma_jev/deploy_vm.sh --create
+
+# Or deploy using the bare-metal systemd service (/opt/venv/vllm):
+./deploy/diffusiongemma_jev/deploy_vm.sh --systemd
+
+# Open self-healing IAP tunnel on localhost:8011
+./scripts/connect_gpu.sh
+```

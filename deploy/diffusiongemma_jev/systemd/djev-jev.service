@@ -1,25 +1,20 @@
 [Unit]
-Description=Jev System One structured server (DiffusionGemma canvas reads)
-Documentation=https://github.com/vllm-project/vllm/pull/57250
-After=djev-vllm.service
-Requires=djev-vllm.service
+Description=OpenJev System One server (DiffusionGemma-26B-A4B unified AsyncLLM engine)
+Documentation=https://github.com/razorback16/openjev
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=root
 Environment=HF_HOME=/opt/hf
-# systemd starts us as soon as the vLLM unit is *launched*, not when it is
-# *ready*. The engine needs ~300 s to load weights, so block until it answers.
-ExecStartPre=/bin/bash -c 'for i in $(seq 1 240); do curl -sf http://127.0.0.1:8000/v1/models >/dev/null && exit 0; sleep 5; done; echo "upstream vLLM never became ready"; exit 1'
-ExecStart=/opt/venv/vllm/bin/python \
-  /opt/vllm-pr/examples/features/diffusion_reads/structured_server.py \
-  --upstream http://127.0.0.1:8000 \
-  --model RedHatAI/diffusiongemma-26B-A4B-it-NVFP4 \
-  --tokenizer RedHatAI/diffusiongemma-26B-A4B-it-NVFP4 \
-  --canvas 64 \
-  --host 127.0.0.1 \
-  --port 8011
-TimeoutStartSec=1500
+Environment=OPENJEV_MODEL=RedHatAI/diffusiongemma-26B-A4B-it-NVFP4
+Environment=OPENJEV_HOST=127.0.0.1
+Environment=OPENJEV_PORT=8011
+Environment=OPENJEV_MAX_MODEL_LEN=16384
+Environment=OPENJEV_GPU_UTIL=0.90
+ExecStart=/opt/venv/vllm/bin/python -m openjev
+TimeoutStartSec=900
 Restart=always
 RestartSec=10
 StandardOutput=append:/var/log/djev-jev.log
