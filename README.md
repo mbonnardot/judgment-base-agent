@@ -225,61 +225,41 @@ Because `TypeSafeBackend` evaluates all batched `Choice`, `Score`, and `Noul` cr
 
 ---
 
-## Self-Hosting Google `DiffusionGemma-26B-A4B` as Jev on GCP Cloud Run
+## Running with OpenJev (`DiffusionGemma-26B-A4B`) on Codiv, Apple Silicon MLX, Docker, or GCP Cloud Run
 
-In addition to the managed TypeSafe System One API (`TYPESAFE_API_KEY`), `judgment-base-agent` can run **Google's `DiffusionGemma-26B-A4B` (`google/diffusiongemma-26B-A4B-it`, Apache-2.0, ungated)** as a self-hosted Jev endpoint on **Cloud Run**, implementing single-step "bubble-sheet" diffusion canvas scoring.
+In addition to the managed TypeSafe System One API (`TYPESAFE_API_KEY`), `judgment-base-agent` natively supports **[OpenJev (`razorback16/openjev`)](https://github.com/razorback16/openjev)** — an open-source, Jev-compatible System One decision server (`POST /v1/systemone`) powered by Google's **`DiffusionGemma-26B-A4B`** (`nvidia/diffusiongemma-26B-A4B-it-NVFP4`, Apache-2.0).
 
-The container ships **two engines**:
+### 1. Choose Any OpenJev Runtime
 
-| Engine | `DIFFUSIONGEMMA_ENGINE` | Notes |
+| Runtime | How to Start | Notes |
 | :-- | :-- | :-- |
-| **`transformers`** (default) | `transformers` | Native single-step `DiffusionGemmaForBlockDiffusion` encoder-prefill + bidirectional-decoder canvas pass. Requires `transformers >= 5.8.0`. Runs on CPU or GPU. |
-| **vLLM** (opt-in, GPU-only) | `vllm` | Runs `vllm serve` plus the PR's own `structured_server.py`, which does the single-canvas read correctly and serves `POST /v1/systemone`. Needs [vLLM PR #57250](https://github.com/vllm-project/vllm/pull/57250), which is **open, conflicted, and unreviewed** — so vLLM is **not installed unless you build with `--build-arg INSTALL_VLLM=true`**. See [the deploy README](./deploy/diffusiongemma_jev/README.md). |
-
-All deployment artifacts live in [`deploy/diffusiongemma_jev/`](./deploy/diffusiongemma_jev/):
-* [`Dockerfile`](./deploy/diffusiongemma_jev/Dockerfile) & [`entrypoint.sh`](./deploy/diffusiongemma_jev/entrypoint.sh) — `python:3.11-slim` + torch (cu124) + `transformers` + FastAPI. vLLM is an opt-in build arg pinned to an exact PR commit; `entrypoint.sh` fails fast with an actionable message if `DIFFUSIONGEMMA_ENGINE=vllm` is set on an image built without it. In `vllm` mode the entrypoint execs the PR's `structured_server.py` instead of `server.py`.
-* [`server.py`](./deploy/diffusiongemma_jev/server.py) — The `transformers` engine. Exposes `GET /health` plus `POST /v1/system_one` and its `POST /v1/judgment` alias, returning calibrated `choices`, `scores`, `nouls`, and Shannon-entropy `confidence`.
-* [`deploy_cloud_run.sh`](./deploy/diffusiongemma_jev/deploy_cloud_run.sh) — 1-command deploy. Auto-creates the Artifact Registry repo, attempts `1x nvidia-l4`, and **falls back to 4 vCPU / 16 GiB CPU if L4 quota is unavailable**.
-
-### 1. Deploy in 1 Command
-
-```bash
-export PROJECT_ID="your-gcp-project-id"
-./deploy/diffusiongemma_jev/deploy_cloud_run.sh
-```
-
-No HuggingFace token is required — `google/diffusiongemma-26B-A4B-it` is public and ungated. The script prints the service URL and the matching `export DIFFUSIONGEMMA_JEV_URL=...` line when it finishes.
-
-> **GPU note.** The 26B weights need a GPU. Cloud Run GPU services require `--min-instances >= 1`, and L4 quota is `0` on new projects — request it at [g.co/cloudrun/gpu-quota](https://g.co/cloudrun/gpu-quota). Of the public quantizations, `nvidia/...NVFP4` (17.53 GiB) fits an L4's 24 GB; `RedHatAI/...FP8-dynamic` (25.33 GiB) does not. Without a GPU the script still deploys on CPU using a small test checkpoint, which validates the full request path but **not** judgment quality.
+| **Codiv Hosted OpenJev** | `export OPENJEV_BASE_URL="https://api.codiv.ai"`<br>`export OPENJEV_API_KEY="sk-codiv-..."` | Free hosted OpenJev endpoint (100M free input tokens, no GPU required). |
+| **Docker (NVIDIA GPU)** | `docker run -d --gpus all --ipc=host -p 8080:8080 -v ~/.cache/huggingface:/root/.cache/huggingface razorback16/openjev:0.3.0` | Prebuilt image with vLLM PR `#57250` + 4 stability fixes & precompiled wheels. Also serves `/v1/chat/completions` (`diffusiongemma-26b`). |
+| **Apple Silicon (MLX)** | `pip install "git+https://github.com/razorback16/openjev.git#egg=openjev[mlx]"`<br>`OPENJEV_BACKEND=mlx python -m openjev` | Runs `mlx-community/diffusiongemma-26B-A4B-it-4bit` in-process (~16 GB unified memory, no Docker or vLLM needed). |
+| **GCP Cloud Run / L4 VM** | `./deploy/diffusiongemma_jev/deploy_cloud_run.sh` *(or `./scripts/connect_gpu.sh`)* | Deploys [`deploy/diffusiongemma_jev/Dockerfile`](./deploy/diffusiongemma_jev/Dockerfile) (`FROM razorback16/openjev:0.3.0`) on `1x nvidia-l4`. |
 
 ### 2. Use with Existing ADK Agents & Examples (Zero Code Changes)
 
-`TypeSafeBackend` auto-detects `DIFFUSIONGEMMA_JEV_URL` and routes every `JudgmentAgent`, `JudgmentSwitch`, `JudgmentGuard`, `JudgmentMap`, and `JudgmentRubricEvaluator` call to your container — no agent code changes:
+`TypeSafeBackend` auto-detects `OPENJEV_BASE_URL` (or `DIFFUSIONGEMMA_JEV_URL`) and routes every `JudgmentAgent`, `JudgmentSwitch`, `JudgmentGuard`, `JudgmentMap`, and `JudgmentRubricEvaluator` call to OpenJev's `POST /v1/systemone` endpoint — no agent code changes:
 
 ```bash
-export DIFFUSIONGEMMA_JEV_URL="https://diffusiongemma-jev-xyz-uc.a.run.app"
+export OPENJEV_BASE_URL="http://127.0.0.1:8080"
 uv run adk web examples --port 8008
 ```
 
-If the Cloud Run service is private (the default, and mandatory under a Domain Restricted Sharing org policy that blocks `allUsers`), pass an identity token via `DIFFUSIONGEMMA_API_KEY`; the backend sends it as `Authorization: Bearer`:
-
-```bash
-# Note: user-account tokens carry the wrong `aud` and will 401.
-# Mint via a service account granted roles/run.invoker:
-export DIFFUSIONGEMMA_API_KEY="$(gcloud auth print-identity-token \
-  --impersonate-service-account=YOUR_SA@PROJECT.iam.gserviceaccount.com \
-  --audiences="$DIFFUSIONGEMMA_JEV_URL" --include-email)"
-```
-
-Or instantiate [`DiffusionGemmaBackend`](./judgment_base_agent/backends/diffusiongemma.py) explicitly (`mode="system_one"` for the container, `mode="vllm"` for raw vLLM `/v1/completions`):
+Or instantiate [`DiffusionGemmaBackend`](./judgment_base_agent/backends/diffusiongemma.py) explicitly (with optional OpenJev extensions `steps`, `samples`, `think`, `sequential`, `images`):
 
 ```python
 from judgment_base_agent import DiffusionGemmaBackend, JudgmentSwitch
 
 router = JudgmentSwitch(
-    name="diffusiongemma_router",
+    name="openjev_router",
     routes={"billing": "Billing questions", "tech_support": "Technical bugs"},
-    backend=DiffusionGemmaBackend(base_url="https://diffusiongemma-jev-xyz-uc.a.run.app"),
+    backend=DiffusionGemmaBackend(
+        base_url="http://127.0.0.1:8080",
+        steps=1,
+        samples=2,
+    ),
 )
 ```
 
@@ -287,15 +267,14 @@ router = JudgmentSwitch(
 
 | Variable | Default | Purpose |
 | :--- | :--- | :--- |
-| `DIFFUSIONGEMMA_JEV_URL` | — | Base URL. Setting it makes `TypeSafeBackend` delegate automatically. |
-| `DIFFUSIONGEMMA_API_KEY` | — | Sent as `Authorization: Bearer`. Needed for private Cloud Run. |
-| `DIFFUSIONGEMMA_MODEL_ID` | `diffusiongemma-26B-A4B-it-NVFP4` | Model name passed through to the server. |
-| `DIFFUSIONGEMMA_SYSTEM_ONE_PATH` | `/v1/system_one` | Our container's route. Use `/v1/systemone` for the vLLM PR's `structured_server.py`. |
-| `DIFFUSIONGEMMA_ALIAS_QUESTION_KEYS` | `true` | Send positional `q0…qN` keys on the wire instead of schema key names, working around an upstream template-builder bug in `structured_server.py` that 422s on keys like `item_0__urgency_score`. Answers are mapped back transparently. Set `false` to send the real key names. |
+| `OPENJEV_BASE_URL` / `DIFFUSIONGEMMA_JEV_URL` | — | Base URL (`https://api.codiv.ai`, `http://127.0.0.1:8080`, etc.). Setting either makes `TypeSafeBackend` delegate automatically. |
+| `OPENJEV_API_KEY` / `DIFFUSIONGEMMA_API_KEY` | — | Sent as `Authorization: Bearer`. Used for Codiv or private Cloud Run endpoints. |
+| `OPENJEV_MODEL_ID` | `openjev-latest` | Model alias sent on `/v1/systemone` (`openjev-latest`, `openjev-0.1`, `jev-latest`, `jev-preview`). |
+| `DIFFUSIONGEMMA_SYSTEM_ONE_PATH` | `/v1/systemone` | Endpoint path on the OpenJev server. |
 
 ### 3. Measured Batch Scaling on a Live Deployment
 
-Server-reported latency, 7 samples per row after a warm call, against a deployed Cloud Run revision:
+Server-reported latency, 7 samples per row after a warm call, against a deployed L4 GPU revision:
 
 | Criteria | Server p50 | Per-criterion |
 | --: | --: | --: |

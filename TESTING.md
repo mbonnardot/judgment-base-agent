@@ -100,14 +100,12 @@ When it prints `==> Ready.` the endpoint is live at `http://127.0.0.1:8011`.
 > see it. If you bypass the script, discard your first timing.
 
 
-### 2. Point the agents at it
+### 2. Point the agents at OpenJev
 
-Uncomment the `Option B` block in `examples/.env`:
+Uncomment `OPENJEV_BASE_URL` in `examples/.env` (or use `https://api.codiv.ai` / local Docker / Apple Silicon MLX):
 
 ```bash
-DIFFUSIONGEMMA_JEV_URL=http://127.0.0.1:8011
-DIFFUSIONGEMMA_SYSTEM_ONE_PATH=/v1/systemone
-DIFFUSIONGEMMA_MODEL_ID=RedHatAI/diffusiongemma-26B-A4B-it-NVFP4
+OPENJEV_BASE_URL=http://127.0.0.1:8011
 ```
 
 ### 3. Run
@@ -216,8 +214,7 @@ gcloud compute ssh djev-vllm-l4 --zone us-central1-a \
 | `connect_gpu.sh`: "already in use" | Old tunnel still alive | `lsof -iTCP:8011 -sTCP:LISTEN` then kill it |
 | "endpoint never came up" | Engine still loading, or crashed | `sudo journalctl -u djev-vllm -n 50` on the VM |
 | Agents answer but the GPU log is silent | `adk web` started before `.env` changed | Restart `adk web` |
-| Everything is suspiciously fast | Still on managed TypeSafe | Check `DIFFUSIONGEMMA_JEV_URL` is actually set in the shell `adk web` sees |
-| `HTTP 422 ... labels do not share one template slot` | `DIFFUSIONGEMMA_ALIAS_QUESTION_KEYS=false` against the PR's server | Leave it at the default `true` |
+| Everything is suspiciously fast | Still on managed TypeSafe | Check `OPENJEV_BASE_URL` (or `DIFFUSIONGEMMA_JEV_URL`) is actually set in the shell `adk web` sees |
 
 ---
 
@@ -227,16 +224,9 @@ Worth knowing before drawing conclusions from a demo.
 
 - **The L4 has no native FP4.** Ada (sm_89) falls back to the Marlin kernel, so
   these latencies are a **floor, not a ceiling** — Blackwell would be faster.
-- **Auto re-read dominates latency.** The server defaults to
-  `mode:auto, threshold:0.1, max:4`, so a typical call does ~4 reads at ~272 ms
-  rather than 1 read at ~96 ms. `samples` is not yet exposed on the backend,
-  so **cost models must price expected reads, not one read.**
-- **The vLLM fork is an unmerged PR** ([#57250](https://github.com/vllm-project/vllm/pull/57250)),
-  pinned to commit `ceb8eebf3`. It is open, conflicted, and unreviewed. Treat
-  the engine as experimental.
-- **`ai_action_approval_gate` returns HTTP 500** after its judgment succeeds.
-  The judgment itself is fine on the GPU; the downstream failure is undiagnosed.
-- **`llm_as_a_judge_rubric` and `policy_fact_checker_loop`** have not been
-  exercised against the GPU yet.
+- **Auto re-read dominates latency.** OpenJev defaults to
+  `OPENJEV_AUTO_THRESHOLD=0.1` and `OPENJEV_AUTO_MAX=4`, so high-entropy calls
+  may run up to 4 reads. Pass `samples=1` on `DiffusionGemmaBackend` to pin a
+  single read.
 - **The tunnel is a workstation-local dev path**, not a deployment. Production
-  needs an internal load balancer or Cloud Run with the GPU image.
+  needs an internal load balancer or Cloud Run with the GPU image (`razorback16/openjev:0.3.0`).

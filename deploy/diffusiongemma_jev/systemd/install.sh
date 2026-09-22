@@ -1,34 +1,24 @@
 #!/usr/bin/env bash
 #
-# Install the DiffusionGemma-as-Jev systemd units on the GPU VM.
+# Install the unified OpenJev systemd unit on the GPU VM.
 #
-# Run this ON THE VM, as root:
+# Run via deploy_vm.sh:
+#   ./deploy/diffusiongemma_jev/deploy_vm.sh --systemd
 #
-#   gcloud compute scp --recurse deploy/diffusiongemma_jev/systemd \
-#     djev-vllm-l4:~/systemd --zone us-central1-a \
-#     --project medquad-assistant-capstone --tunnel-through-iap
-#   gcloud compute ssh djev-vllm-l4 --zone us-central1-a \
-#     --project medquad-assistant-capstone --tunnel-through-iap \
-#     --command "sudo bash ~/systemd/install.sh"
-#
-# Without these units the servers are one-off nohup processes: they die on
-# reboot and never come back after the VM is stopped to save money.
+# Or directly on the VM as root:
+#   sudo bash ~/systemd/install.sh
 set -euo pipefail
 
 UNIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SYSTEMD_DIR=/etc/systemd/system
-UNITS=(djev-vllm.service djev-jev.service)
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "error: must run as root (use: sudo bash $0)" >&2
   exit 1
 fi
 
-# Fail loudly now rather than leaving a unit that silently never starts.
 for required in \
-  /opt/venv/vllm/bin/vllm \
   /opt/venv/vllm/bin/python \
-  /opt/vllm-pr/examples/features/diffusion_reads/structured_server.py \
   /opt/hf
 do
   if [[ ! -e "${required}" ]]; then
@@ -37,34 +27,38 @@ do
   fi
 done
 
-echo "==> Stopping any hand-launched nohup servers"
-pkill -f 'vllm serve RedHatAI' || true
-pkill -f 'structured_server.py' || true
+if ! /opt/venv/vllm/bin/python -c "import openjev" >/dev/null 2>&1; then
+  echo "==> Installing razorback16/openjev@v0.3.0 into /opt/venv/vllm"
+  /opt/venv/vllm/bin/pip install --no-deps git+https://github.com/razorback16/openjev.git@v0.3.0
+fi
+
+echo "==> Stopping any legacy vLLM / Docker / hand-launched processes"
+systemctl stop djev-vllm.service 2>/dev/null || true
+systemctl disable djev-vllm.service 2>/dev/null || true
+rm -f "${SYSTEMD_DIR}/djev-vllm.service"
+docker rm -f openjev 2>/dev/null || true
+pkill -f 'vllm serve RedHatAI' 2>/dev/null || true
+pkill -f 'structured_server.py' 2>/dev/null || true
+pkill -f 'python -m openjev' 2>/dev/null || true
 sleep 3
 
-echo "==> Installing units into ${SYSTEMD_DIR}"
-for unit in "${UNITS[@]}"; do
-  install -m 0644 "${UNIT_DIR}/${unit}" "${SYSTEMD_DIR}/${unit}"
-  echo "    ${unit}"
-done
+echo "==> Installing djev-jev.service into ${SYSTEMD_DIR}"
+install -m 0644 "${UNIT_DIR}/djev-jev.service" "${SYSTEMD_DIR}/djev-jev.service"
 
-echo "==> Enabling and starting"
+echo "==> Enabling and starting djev-jev.service"
 systemctl daemon-reload
-systemctl enable "${UNITS[@]}"
-# Starting djev-jev pulls in djev-vllm via Requires=.
+systemctl enable djev-jev.service
 systemctl restart djev-jev.service
 
 cat <<'EOF'
 
-==> Installed. The engine takes ~5 minutes to load weights on a cold start.
+==> Installed unified OpenJev systemd unit (djev-jev.service).
+    The engine takes ~3-5 minutes to load weights on a cold start.
 
 Watch progress:
-  journalctl -u djev-vllm -f
-  tail -f /var/log/djev-vllm.log
+  journalctl -u djev-jev -f
+  tail -f /var/log/djev-jev.log
 
 Verify when ready:
   curl -sf http://127.0.0.1:8011/health && echo OK
-
-Both units are enabled, so `gcloud compute instances start djev-vllm-l4`
-is now enough to bring the whole stack back.
 EOF

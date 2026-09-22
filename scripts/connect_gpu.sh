@@ -97,7 +97,7 @@ wait_for_endpoint() {
 warm_model() {
   curl -sf --max-time 90 "http://127.0.0.1:${LOCAL_PORT}/v1/systemone" \
     -H 'Content-Type: application/json' \
-    -d '{"state":{"warmup":true},"questions":{"q0":{"type":"noul","instructions":"Is this a warmup?"}}}' \
+    -d '{"model":"openjev-latest","state":{"warmup":true},"questions":{"q0":{"type":"noul","instructions":"Is this a warmup?"}}}' \
     >/dev/null 2>&1
 }
 
@@ -119,7 +119,7 @@ fi
 log "Opening tunnel localhost:${LOCAL_PORT} -> ${INSTANCE}:${REMOTE_PORT}"
 start_tunnel
 
-log "Waiting for the Jev endpoint to answer"
+log "Waiting for the OpenJev endpoint to answer"
 wait_for_endpoint 120 || die "endpoint never came up. On the VM: systemctl status djev-vllm djev-jev"
 
 log "Warming the model (one throwaway judgment, up to ~40 s)"
@@ -127,10 +127,9 @@ warm_model || warn "warm-up failed; the endpoint is up but the first real call w
 
 cat <<EOF
 
-$(printf '\033[1;32m==> Ready.\033[0m') Jev System One is at http://127.0.0.1:${LOCAL_PORT}
+$(printf '\033[1;32m==> Ready.\033[0m') OpenJev System One is at http://127.0.0.1:${LOCAL_PORT}
 
-  DIFFUSIONGEMMA_JEV_URL=http://127.0.0.1:${LOCAL_PORT}
-  DIFFUSIONGEMMA_SYSTEM_ONE_PATH=/v1/systemone
+  OPENJEV_BASE_URL=http://127.0.0.1:${LOCAL_PORT}
 
 Leave this terminal open. Ctrl-C closes the tunnel.
 EOF
