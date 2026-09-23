@@ -30,8 +30,9 @@ def test_deploy_vm_script_and_single_engine_systemd() -> None:
     assert deploy_vm.exists(), "deploy/diffusiongemma_jev/deploy_vm.sh must exist"
     content = deploy_vm.read_text(encoding="utf-8")
     assert "gcloud compute" in content
-    assert "razorback16/openjev:0.3.0" in content
-    assert "g2-standard-8" in content
+    assert "razorback16/openjev:0.4.0" in content
+    assert "--ipc=host" in content
+    assert "a2-highgpu-1g" in content
 
     # OpenJev v0.3.0 embeds AsyncLLM directly in-process; a separate djev-vllm.service would double-load weights
     assert not (DEPLOY_DIR / "systemd" / "djev-vllm.service").exists(), (

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_ID="${PROJECT_ID:-medquad-assistant-capstone}"
+PROJECT_ID="${PROJECT_ID:-judgement-base-agent}"
 REGION="${REGION:-us-central1}"
 SERVICE_NAME="${SERVICE_NAME:-openjev}"
 REPO_NAME="${REPO_NAME:-medquad-repo}"
@@ -54,7 +54,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --concurrency=16 \
   --timeout=300 \
   --no-allow-unauthenticated \
-  --set-env-vars="OPENJEV_PORT=8080,OPENJEV_MAX_MODEL_LEN=16384,OPENJEV_GPU_UTIL=0.90"
+  --set-env-vars="OPENJEV_PORT=8080,OPENJEV_MAX_MODEL_LEN=8192,OPENJEV_GPU_UTIL=0.95"
 
 SERVICE_URL="$(gcloud run services describe "${SERVICE_NAME}" --project="${PROJECT_ID}" --region="${REGION}" --format='value(status.url)')"
 echo ""
