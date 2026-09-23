@@ -18,8 +18,8 @@
 # adk web pointed at a dead port. This script reconnects until you Ctrl-C.
 set -euo pipefail
 
-PROJECT="${DJEV_PROJECT:-medquad-assistant-capstone}"
-ZONE="${DJEV_ZONE:-us-central1-a}"
+PROJECT="${DJEV_PROJECT:-judgement-base-agent}"
+ZONE="${DJEV_ZONE:-us-central1-c}"
 INSTANCE="${DJEV_INSTANCE:-djev-vllm-l4}"
 LOCAL_PORT="${DJEV_LOCAL_PORT:-8011}"
 REMOTE_PORT="${DJEV_REMOTE_PORT:-8011}"

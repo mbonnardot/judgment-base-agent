@@ -1,14 +1,10 @@
-# Cloud Run / GPU deployment image built directly on razorback16/openjev
-# (includes vLLM with PR #57250 structured reads + 4 sampler/image/logit fixes,
-# precompiled CUDA wheels, and the OpenJev /v1/systemone + /v1/chat/completions server).
-FROM razorback16/openjev:0.3.0
+# OpenJev (DiffusionGemma-26B-A4B) container for 24 GB NVIDIA L4 GPUs (Cloud Run / GCE).
+# Keeps all upstream OpenJev defaults except capping OPENJEV_MAX_MODEL_LEN to 4096
+# (since 65536 requires ~6.8 GiB KV cache on top of 18.15 GiB weights, exceeding 24 GB L4 VRAM).
+FROM razorback16/openjev:0.4.0
 
-ENV PYTHONUNBUFFERED=1 \
-    OPENJEV_HOST=0.0.0.0 \
-    OPENJEV_PORT=8080 \
-    OPENJEV_MODEL=nvidia/diffusiongemma-26B-A4B-it-NVFP4 \
-    OPENJEV_CANVAS=64 \
-    OPENJEV_MAX_MODEL_LEN=16384 \
-    OPENJEV_GPU_UTIL=0.90
+ENV OPENJEV_PORT=8080 \
+    OPENJEV_MAX_MODEL_LEN=4096 \
+    OPENJEV_VLLM_ARGS="--enforce-eager"
 
 EXPOSE 8080
