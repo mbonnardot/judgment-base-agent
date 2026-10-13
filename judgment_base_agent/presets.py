@@ -40,6 +40,8 @@ class JudgmentSwitch(JudgmentAgent):
         schema: type[JudgmentSchema] | None = None,
         questions: Mapping[str, Any] | Callable[..., Mapping[str, Any]] | None = None,
         route_key: str = "route",
+        route_field: str | None = None,
+        clarity_field: str | None = None,
         confidence_floor: float | None = None,
         uncertain_route: str = "uncertain",
         route_policy: Callable[[Any, dict[str, Any]], Any] | None = None,
@@ -52,6 +54,7 @@ class JudgmentSwitch(JudgmentAgent):
         backend: BaseJudgmentBackend | None = None,
         sub_agents: Sequence[BaseAgent] | None = None,
     ) -> None:
+        effective_route_key = route_field or route_key
         resolved_questions = questions
         if schema is None and resolved_questions is None:
             if not instructions or not routes:
@@ -59,7 +62,7 @@ class JudgmentSwitch(JudgmentAgent):
                     f"JudgmentSwitch '{name}' requires either (`instructions` + `routes`) or (`schema` / `questions`)."
                 )
             resolved_questions = {
-                route_key: Choice(instructions=instructions, criteria=routes)
+                effective_route_key: Choice(instructions=instructions, criteria=routes)
             }
 
         sub_agent_names = {sa.name for sa in (sub_agents or [])}
@@ -72,9 +75,11 @@ class JudgmentSwitch(JudgmentAgent):
                     transfer_to_sub_agent=transfer_to_sub_agent,
                 )
             raw_res = res.raw_result if isinstance(res, JudgmentSchema) and res.raw_result else res
-            selected = raw_res.choice(route_key)
-            conf = raw_res.confidence(route_key)
-            if raw_res.nouls:
+            selected = raw_res.choice(effective_route_key)
+            conf = raw_res.confidence(effective_route_key)
+            if clarity_field is not None:
+                conf = min(conf, raw_res.noul(clarity_field))
+            elif raw_res.nouls:
                 conf = min(conf, min(n.noul for n in raw_res.nouls.values()))
             if confidence_floor is not None and conf < confidence_floor:
                 chosen_route = uncertain_route

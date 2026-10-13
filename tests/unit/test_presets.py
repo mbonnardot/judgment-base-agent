@@ -6,6 +6,8 @@ from google.genai import types
 import pytest
 
 from judgment_base_agent import (
+    Choice,
+    ChoiceJudgment,
     JudgmentAgent,
     JudgmentBatch,
     JudgmentConfigError,
@@ -307,3 +309,87 @@ def test_subclass_overriding_evaluate_core_must_also_override_judge() -> None:
         class BrokenAgent(JudgmentAgent):
             async def _evaluate_core(self, session_state, node_input):  # type: ignore[override]
                 return "structurally different output"
+
+
+@pytest.mark.asyncio
+async def test_judgment_switch_route_field_and_clarity_field_aliases() -> None:
+    """Support route_field and clarity_field kwargs on JudgmentSwitch for schema-based routers."""
+
+    class SupportRouterSchema(JudgmentSchema):
+        target_route: ChoiceJudgment = JudgmentField(
+            Choice(
+                instructions="Classify department",
+                criteria={"instant_refund": "Refunds", "tech_support": "Bugs"},
+            )
+        )
+        is_clear_and_specific: NoulJudgment = JudgmentField(
+            Noul(
+                instructions="Is the message clear?",
+                criteria={"true": "Clear", "false": "Vague"},
+            )
+        )
+        unrelated_noul: NoulJudgment = JudgmentField(
+            Noul(instructions="Other binary check")
+        )
+
+    backend = MockJudgmentBackend(
+        responses={
+            "target_route": {"choice": "instant_refund", "confidence": 0.95},
+            "is_clear_and_specific": 0.40,
+            "unrelated_noul": 0.99,
+        }
+    )
+    switch = JudgmentSwitch(
+        name="smart_support_router",
+        schema=SupportRouterSchema,
+        route_field="target_route",
+        clarity_field="is_clear_and_specific",
+        confidence_floor=0.75,
+        uncertain_route="ask_clarifying_question",
+        backend=backend,
+    )
+
+    app = App(name="app", root_agent=switch)
+    runner = InMemoryRunner(app=app)
+    session = await runner.session_service.create_session(app_name="app", user_id="u1")
+    events = [
+        ev
+        async for ev in runner.run_async(
+            user_id="u1",
+            session_id=session.id,
+            new_message=types.Content(role="user", parts=[types.Part.from_text(text="help")]),
+        )
+    ]
+    assert events[-1].actions.route == "ask_clarifying_question"
+
+    # When clarity_field is high (0.90) even if unrelated_noul is low (0.20),
+    # scoping via clarity_field routes to instant_refund instead of falling back.
+    high_clarity_backend = MockJudgmentBackend(
+        responses={
+            "target_route": {"choice": "instant_refund", "confidence": 0.95},
+            "is_clear_and_specific": 0.90,
+            "unrelated_noul": 0.20,
+        }
+    )
+    high_clarity_switch = JudgmentSwitch(
+        name="smart_support_router_high",
+        schema=SupportRouterSchema,
+        route_field="target_route",
+        clarity_field="is_clear_and_specific",
+        confidence_floor=0.75,
+        uncertain_route="ask_clarifying_question",
+        backend=high_clarity_backend,
+    )
+    app2 = App(name="app2", root_agent=high_clarity_switch)
+    runner2 = InMemoryRunner(app=app2)
+    session2 = await runner2.session_service.create_session(app_name="app2", user_id="u1")
+    events2 = [
+        ev
+        async for ev in runner2.run_async(
+            user_id="u1",
+            session_id=session2.id,
+            new_message=types.Content(role="user", parts=[types.Part.from_text(text="refund")]),
+        )
+    ]
+    assert events2[-1].actions.route == "instant_refund"
+
